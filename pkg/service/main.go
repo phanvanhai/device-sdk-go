@@ -25,9 +25,20 @@ import (
 	"github.com/gorilla/mux"
 )
 
+var instanceName string
+
 func Main(serviceName string, serviceVersion string, proto interface{}, ctx context.Context, cancel context.CancelFunc, router *mux.Router, readyStream chan<- bool) {
 	startupTimer := startup.NewStartUpTimer(common.BootRetrySecondsDefault, common.BootTimeoutSecondsDefault)
 
+	additionalUsage :=
+		"    -i, --instance                  Provides a service name suffix which allows unique instance to be created\n" +
+			"                                    If the option is provided, service name will be replaced with \"<name>_<instance>\"\n"
+	sdkFlags := flags.NewWithUsage(additionalUsage)
+	sdkFlags.FlagSet.StringVar(&instanceName, "instance", "", "")
+	sdkFlags.FlagSet.StringVar(&instanceName, "i", "", "")
+	sdkFlags.Parse(os.Args[1:])
+
+	serviceName = setServiceName(serviceName, sdkFlags.Profile())
 	if serviceName == "" {
 		_, _ = fmt.Fprintf(os.Stderr, "Please specify device service name")
 		os.Exit(1)
@@ -50,9 +61,6 @@ func Main(serviceName string, serviceVersion string, proto interface{}, ctx cont
 		common.Discovery = nil
 	}
 
-	f := flags.New()
-	f.Parse(os.Args[1:])
-
 	configuration := &common.ConfigurationStruct{}
 	dic := di.NewContainer(di.ServiceConstructorMap{
 		container.ConfigurationName: func(get di.Get) interface{} {
@@ -66,7 +74,7 @@ func Main(serviceName string, serviceVersion string, proto interface{}, ctx cont
 	bootstrap.Run(
 		ctx,
 		cancel,
-		f,
+		sdkFlags,
 		serviceName,
 		common.ConfigStemDevice+common.ConfigMajorVersion,
 		configuration,
@@ -79,4 +87,17 @@ func Main(serviceName string, serviceVersion string, proto interface{}, ctx cont
 		})
 
 	svc.Stop(false)
+}
+
+func setServiceName(name string, profile string) string {
+	envValue := os.Getenv(common.EnvInstanceName)
+	if len(envValue) > 0 {
+		instanceName = envValue
+	}
+
+	if len(instanceName) > 0 {
+		name = name + "_" + instanceName
+	}
+
+	return name
 }
